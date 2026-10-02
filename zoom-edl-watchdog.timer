@@ -1,0 +1,13 @@
+[Unit]
+Description=Zoom EDL Watchdog Timer
+After=network-online.target
+
+[Timer]
+# Run hourly, offset 10 minutes to avoid colliding with DDNS watchdog
+OnBootSec=10min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

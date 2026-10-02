@@ -1,0 +1,38 @@
+name: Update Zoom EDL
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours
+  workflow_dispatch:         # allow manual trigger from GitHub UI
+
+permissions:
+  contents: write            # needed to commit the updated EDL file
+
+jobs:
+  update-edl:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Fetch Zoom IPs and write EDL
+        run: python3 scripts/fetch_zoom_ips.py --output docs/zoom-edl.txt
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "zoom-edl-bot"
+          git config user.email "zoom-edl-bot@users.noreply.github.com"
+          git add docs/zoom-edl.txt
+          if git diff --staged --quiet; then
+            echo "No changes to EDL — skipping commit."
+          else
+            COUNT=$(grep -c '^[0-9a-f]' docs/zoom-edl.txt || true)
+            git commit -m "Update Zoom EDL: ${COUNT} entries [$(date -u +%Y-%m-%dT%H:%M:%SZ)]"
+            git push
+          fi

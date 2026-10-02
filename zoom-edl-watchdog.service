@@ -1,0 +1,11 @@
+[Unit]
+Description=Zoom EDL Watchdog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/zoom-edl-watchdog/zoom-edl-watchdog.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zoom-edl-watchdog
