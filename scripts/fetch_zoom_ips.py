@@ -1,89 +1,59 @@
 #!/usr/bin/env python3
-"""
-fetch_zoom_ips.py
-
-Fetches Zoom's public IP range JSON and writes a Palo Alto-compatible
-External Dynamic List (EDL) file — one CIDR per line, no comments.
-
-Zoom JSON source: https://assets.zoom.us/docs/ipranges/Zoom.json
-
-Usage:
-    python3 fetch_zoom_ips.py --output docs/zoom-edl.txt
-"""
-
 import argparse
 import json
 import sys
-import urllib.request
 import datetime
+import subprocess
 
 ZOOM_IP_URL = "https://assets.zoom.us/docs/ipranges/Zoom.json"
-MIN_EXPECTED_ENTRIES = 20   # sanity check — alert if Zoom's feed shrinks drastically
+MIN_EXPECTED_ENTRIES = 20
 
-
-def fetch_zoom_ips(url: str) -> list[str]:
-    req = urllib.request.Request(url, headers={"User-Agent": "zoom-edl/1.0"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode())
-
-    ips: set[str] = set()
-
-    # Primary structure: list of region objects each with an ip_ranges list
+def fetch_zoom_ips(url):
+    result = subprocess.run(
+        [
+            "curl", "-fsSL", "--max-time", "30", "--retry", "3", "--retry-delay", "5",
+            "-H", "Accept: application/json, text/plain, */*",
+            "-H", "Accept-Language: en-US,en;q=0.9",
+            "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            url,
+        ],
+        capture_output=True, text=True, check=True,
+    )
+    data = json.loads(result.stdout)
+    ips = set()
     for entry in data.get("ipRanges", []):
         for cidr in entry.get("ip_ranges", []):
             cidr = cidr.strip()
             if cidr:
                 ips.add(cidr)
-
-    # Fallback: some versions use top-level ipv4 / ipv6 keys
     for key in ("ipv4", "ipv6"):
         for cidr in data.get(key, []):
             cidr = cidr.strip()
             if cidr:
                 ips.add(cidr)
-
     return sorted(ips)
 
-
-def write_edl(ips: list[str], output_path: str) -> None:
-    """
-    Writes a plain list of CIDRs — one per line.
-    Palo Alto IP-type EDLs must contain only addresses, no comment lines.
-    """
+def write_edl(ips, output_path):
     with open(output_path, "w") as f:
         for ip in ips:
             f.write(ip + "\n")
-
     timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"[{timestamp}] Wrote {len(ips)} entries to {output_path}")
 
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Fetch Zoom IPs and write EDL.")
-    parser.add_argument("--output", required=True, help="Output file path")
-    parser.add_argument("--url", default=ZOOM_IP_URL, help="Zoom IP JSON URL")
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--url", default=ZOOM_IP_URL)
     args = parser.parse_args()
-
     try:
         ips = fetch_zoom_ips(args.url)
     except Exception as e:
         print(f"ERROR fetching Zoom IPs: {e}", file=sys.stderr)
         sys.exit(1)
-
     if len(ips) < MIN_EXPECTED_ENTRIES:
-        print(
-            f"ERROR: Only {len(ips)} entries found — expected at least "
-            f"{MIN_EXPECTED_ENTRIES}. Zoom's feed may have changed format.",
-            file=sys.stderr,
-        )
+        print(f"ERROR: Only {len(ips)} entries — expected at least {MIN_EXPECTED_ENTRIES}", file=sys.stderr)
         sys.exit(1)
-
-    try:
-        write_edl(ips, args.output)
-    except Exception as e:
-        print(f"ERROR writing EDL: {e}", file=sys.stderr)
-        sys.exit(1)
-
+    write_edl(ips, args.output)
 
 if __name__ == "__main__":
     main()
